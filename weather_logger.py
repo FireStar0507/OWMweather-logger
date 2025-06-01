@@ -1,77 +1,87 @@
 import os
-import sys
-import requests
 import csv
+import requests
+import argparse
 from datetime import datetime
 
-API_KEY = os.getenv('OWM_API_KEY')
+# 配置参数
+API_KEY = os.getenv('OWM_API_KEY')  # 从环境变量获取API密钥
 BASE_URL = "http://api.openweathermap.org/data/2.5/weather"
+BASE_DIR = "weather_data"
 
 def get_weather_data(city):
+    """获取指定城市的天气数据"""
     params = {
         'q': city,
         'lang': 'zh_cn',
         'units': 'metric',
         'APPID': API_KEY
     }
-    
     try:
-        response = requests.get(BASE_URL, params=params)
+        response = requests.get(BASE_URL, params=params, timeout=10)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"API请求失败: {e}")
+    except (requests.RequestException, ValueError) as e:
+        print(f"API请求失败: {str(e)}")
         return None
 
 def save_to_csv(data, city):
-    filename = f"{city}.csv"
-    file_exists = os.path.isfile(filename)
+    """保存数据到CSV文件（自动去重）"""
+    if not data or data.get('cod') != 200:
+        return False
     
-    # 选择需要的字段
-    fields = [
-        'dt', 'name',
-        ('main', 'temp'), ('main', 'humidity'),
-        ('main', 'feels_like'), ('main', 'pressure'),
-        ('wind', 'speed'), ('wind', 'deg'),
-        ('weather', 0, 'description'), ('clouds', 'all')
-    ]
-
-    # 构建行数据
-    row = {}
-    for field in fields:
-        if isinstance(field, tuple):
-            value = data
-            try:
-                for part in field:
-                    value = value[part] if isinstance(value, (dict, list)) else value
-                row['_'.join(map(str, field))] = value
-            except (KeyError, IndexError):
-                row['_'.join(map(str, field))] = None
-        else:
-            row[field] = data.get(field)
-
-    # 添加本地时间
-    dt = datetime.fromtimestamp(row['dt'] + data['timezone'])
-    row['local_time'] = dt.isoformat()
-
+    # 确保目录存在
+    os.makedirs(BASE_DIR, exist_ok=True)
+    
+    file_path = os.path.join(BASE_DIR, f"{city}.csv")
+    file_exists = os.path.isfile(file_path)
+    
+    # 提取需要的数据
+    record = {
+        'dt': data['dt'],
+        'timestamp': datetime.utcfromtimestamp(data['dt']).strftime('%Y-%m-%d %H:%M:%S'),
+        'temp': data['main']['temp'],
+        'feels_like': data['main']['feels_like'],
+        'humidity': data['main']['humidity'],
+        'pressure': data['main']['pressure'],
+        'wind_speed': data['wind']['speed'],
+        'weather': data['weather'][0]['description'],
+        'clouds': data['clouds']['all'],
+        'visibility': data.get('visibility', 'N/A')
+    }
+    
+    # 检查重复记录
+    if file_exists:
+        with open(file_path, 'r') as f:
+            reader = csv.DictReader(f)
+            existing_dts = {row['dt'] for row in reader}
+        
+        if str(record['dt']) in existing_dts:
+            print(f"跳过重复记录: {city} @ {record['timestamp']}")
+            return False
+    
     # 写入CSV
-    with open(filename, 'a', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=row.keys())
+    with open(file_path, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=record.keys())
         if not file_exists:
             writer.writeheader()
-        writer.writerow(row)
+        writer.writerow(record)
+    
+    print(f"记录已保存: {city} @ {record['timestamp']}")
+    return True
+
+def main():
+    parser = argparse.ArgumentParser(description='天气数据记录器')
+    parser.add_argument('cities', nargs='+', help='城市名称列表（空格分隔）')
+    args = parser.parse_args()
+    
+    if not API_KEY:
+        raise ValueError("缺少OWM_API_KEY环境变量")
+    
+    for city in args.cities:
+        data = get_weather_data(city)
+        if data:
+            save_to_csv(data, city)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("请指定城市名称，例如: python weather_logger.py Foshan")
-        sys.exit(1)
-    
-    city = sys.argv[1]
-    for c in city:
-      data = get_weather_data(c)
-      if data and data.get('cod') == 200:
-          save_to_csv(data, c)
-          print(f"数据已保存到 {c}.csv")
-      else:
-          print("获取天气数据失败")
-          sys.exit(1)
+    main()
