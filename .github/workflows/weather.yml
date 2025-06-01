@@ -24,7 +24,7 @@ jobs:
       run: pip install requests
       
     - name: 运行记录器
-      run: python weather_recorder.py "Foshan" "Beijing" "Shanghai"
+      run: python OWMweather_logger.py "Foshan" "Beijing" "Shanghai"
       # 添加更多城市用空格分隔
 
     - name: 提交更改
