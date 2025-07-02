@@ -32,5 +32,7 @@ jobs:
         git config --global user.name 'FireStar0507'
         git config --global user.email '18064625480@163.com'
         git add weather_data/
-        git diff-index --quiet HEAD || git commit -m "自动更新天气数据"
-        git push
+        git commit -m "自动更新天气数据"
+        git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
